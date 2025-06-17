@@ -372,6 +372,28 @@ library DateTimeLib {
         }
     }
 
+    /// @dev Returns the unix timestamp of the given `n`th weekday `wd0`, in `month` of `year`.
+    /// If the nth occurrence doesn't exist, returns the last occurrence of that weekday.
+    /// This follows the C++ date library pattern for handling overflow.
+    /// Example: 5th Friday of November 2020 returns 4th Friday (the last one).
+    function nthWeekdayInMonthOfYearTimestamp0Safe(uint256 year, uint256 month, uint256 n, uint256 wd0)
+        internal
+        pure
+        returns (uint256 result)
+    {
+        // First try to get the requested nth weekday
+        result = nthWeekdayInMonthOfYearTimestamp0(year, month, n, wd0);
+        
+        // If it doesn't exist (returns 0), find the last occurrence
+        if (result == 0 && n > 0) {
+            // Try n-1, n-2, etc. until we find a valid one
+            for (uint256 i = n - 1; i > 0; i--) {
+                result = nthWeekdayInMonthOfYearTimestamp0(year, month, i, wd0);
+                if (result != 0) break;
+            }
+        }
+    }
+
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*              DATE TIME ARITHMETIC OPERATIONS               */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
