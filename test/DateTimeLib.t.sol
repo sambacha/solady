@@ -865,4 +865,259 @@ contract DateTimeLibTest is SoladyTest {
             day = uint256(_day);
         }
     }
+
+    // Tests for 0-indexed weekday functions
+
+    function testWeekday0() public {
+        // Thursday 01 January 1970 should be 4 in 0-indexed (Sunday = 0)
+        assertEq(DateTimeLib.weekday0(0), 4);
+        assertEq(DateTimeLib.weekday0(1), 4);
+        // Friday 02 January 1970 should be 5
+        assertEq(DateTimeLib.weekday0(86400), 5);
+        assertEq(DateTimeLib.weekday0(86401), 5);
+        // Saturday 03 January 1970 should be 6
+        assertEq(DateTimeLib.weekday0(172800), 6);
+        // Sunday 04 January 1970 should be 0
+        assertEq(DateTimeLib.weekday0(259200), 0);
+        // Monday 05 January 1970 should be 1
+        assertEq(DateTimeLib.weekday0(345600), 1);
+        // Tuesday 06 January 1970 should be 2
+        assertEq(DateTimeLib.weekday0(432000), 2);
+        // Wednesday 07 January 1970 should be 3
+        assertEq(DateTimeLib.weekday0(518400), 3);
+    }
+
+    function testWeekday0Fuzz(uint256 timestamp) public {
+        timestamp = _bound(timestamp, 0, DateTimeLib.MAX_SUPPORTED_TIMESTAMP);
+        uint256 wd1 = DateTimeLib.weekday(timestamp);
+        uint256 wd0 = DateTimeLib.weekday0(timestamp);
+        
+        // Verify the relationship between 1-indexed and 0-indexed
+        // In 1-indexed: Mon=1, Tue=2, Wed=3, Thu=4, Fri=5, Sat=6, Sun=7
+        // In 0-indexed: Sun=0, Mon=1, Tue=2, Wed=3, Thu=4, Fri=5, Sat=6
+        uint256 expectedWd0 = DateTimeLib.weekdayTo0Indexed(wd1);
+        assertEq(wd0, expectedWd0);
+    }
+
+    function testWeekdayConversions() public {
+        // Test 1-indexed to 0-indexed conversion
+        assertEq(DateTimeLib.weekdayTo0Indexed(1), 1); // Monday
+        assertEq(DateTimeLib.weekdayTo0Indexed(2), 2); // Tuesday
+        assertEq(DateTimeLib.weekdayTo0Indexed(3), 3); // Wednesday
+        assertEq(DateTimeLib.weekdayTo0Indexed(4), 4); // Thursday
+        assertEq(DateTimeLib.weekdayTo0Indexed(5), 5); // Friday
+        assertEq(DateTimeLib.weekdayTo0Indexed(6), 6); // Saturday
+        assertEq(DateTimeLib.weekdayTo0Indexed(7), 0); // Sunday
+
+        // Test 0-indexed to 1-indexed conversion
+        assertEq(DateTimeLib.weekdayTo1Indexed(0), 7); // Sunday
+        assertEq(DateTimeLib.weekdayTo1Indexed(1), 1); // Monday
+        assertEq(DateTimeLib.weekdayTo1Indexed(2), 2); // Tuesday
+        assertEq(DateTimeLib.weekdayTo1Indexed(3), 3); // Wednesday
+        assertEq(DateTimeLib.weekdayTo1Indexed(4), 4); // Thursday
+        assertEq(DateTimeLib.weekdayTo1Indexed(5), 5); // Friday
+        assertEq(DateTimeLib.weekdayTo1Indexed(6), 6); // Saturday
+    }
+
+    function testIsWeekEnd0() public {
+        // Test known weekend days
+        assertEq(DateTimeLib.isWeekEnd0(172800), true); // Saturday 03 January 1970
+        assertEq(DateTimeLib.isWeekEnd0(259200), true); // Sunday 04 January 1970
+        
+        // Test known weekdays
+        assertEq(DateTimeLib.isWeekEnd0(0), false); // Thursday 01 January 1970
+        assertEq(DateTimeLib.isWeekEnd0(86400), false); // Friday 02 January 1970
+        assertEq(DateTimeLib.isWeekEnd0(345600), false); // Monday 05 January 1970
+        assertEq(DateTimeLib.isWeekEnd0(432000), false); // Tuesday 06 January 1970
+        assertEq(DateTimeLib.isWeekEnd0(518400), false); // Wednesday 07 January 1970
+    }
+
+    function testIsWeekEnd0Fuzz(uint256 timestamp) public {
+        timestamp = _bound(timestamp, 0, DateTimeLib.MAX_SUPPORTED_TIMESTAMP);
+        uint256 wd0 = DateTimeLib.weekday0(timestamp);
+        bool isWeekend = DateTimeLib.isWeekEnd0(timestamp);
+        
+        if (wd0 == 0 || wd0 == 6) {
+            assertTrue(isWeekend);
+        } else {
+            assertFalse(isWeekend);
+        }
+    }
+
+    function testMondayTimestamp0() public {
+        // Test various dates and their corresponding Mondays
+        // Monday 05 January 1970
+        assertEq(DateTimeLib.mondayTimestamp0(345600), 345600);
+        // Sunday 04 January 1970 -> Monday 29 December 1969 (but should handle edge case)
+        assertEq(DateTimeLib.mondayTimestamp0(259200), 0); // Edge case for first week
+        // Saturday 03 January 1970 -> previous Monday would be negative
+        assertEq(DateTimeLib.mondayTimestamp0(172800), 0);
+        // Friday 02 January 1970 -> previous Monday would be negative
+        assertEq(DateTimeLib.mondayTimestamp0(86400), 0);
+        
+        // Test a known Monday in November 2022 (same as in original tests)
+        // Monday 07 November 2022
+        assertEq(DateTimeLib.mondayTimestamp0(1667779200), 1667779200);
+        // Sunday 06 November 2022 should give Monday 31 October 2022
+        assertEq(DateTimeLib.mondayTimestamp0(1667692800), 1667174400);
+    }
+
+    function testNthWeekdayInMonthOfYearTimestamp0() public {
+        // Test with 0-indexed weekdays
+        // 1st Wednesday (wd0=3) in November 2022
+        uint256 nov1 = DateTimeLib.dateToTimestamp(2022, 11, 1);
+        uint256 nov1Wd0 = DateTimeLib.weekday0(nov1);
+        // Nov 1, 2022 is Tuesday (2), so first Wednesday (3) is Nov 2
+        assertEq(nov1Wd0, 2); // Verify Nov 1 is Tuesday
+        
+        uint256 result = DateTimeLib.nthWeekdayInMonthOfYearTimestamp0(2022, 11, 1, 3);
+        assertEq(result, 1667347200); // Nov 2, 2022
+        
+        // 2nd Wednesday in November 2022
+        assertEq(DateTimeLib.nthWeekdayInMonthOfYearTimestamp0(2022, 11, 2, 3), 1667952000);
+        
+        // 1st Sunday (wd0=0) in January 2023
+        assertEq(DateTimeLib.nthWeekdayInMonthOfYearTimestamp0(2023, 1, 1, 0), 1672531200);
+        
+        // 1st Friday (wd0=5) in December 2022
+        assertEq(DateTimeLib.nthWeekdayInMonthOfYearTimestamp0(2022, 12, 1, 5), 1669939200);
+    }
+
+    function testNthWeekdayOverflowScenarios() public {
+        // Test case from C++ date library documentation:
+        // November 2020 only has 4 Fridays, so requesting the 5th Friday should return 0
+        
+        // First, verify November 2020 has exactly 4 Fridays
+        // Nov 1, 2020 is a Sunday (verified externally)
+        // Fridays in Nov 2020: 6th, 13th, 20th, 27th
+        
+        // 1st Friday of November 2020
+        uint256 fri1 = DateTimeLib.nthWeekdayInMonthOfYearTimestamp0(2020, 11, 1, 5);
+        assertEq(DateTimeLib.weekday0(fri1), 5); // Verify it's a Friday
+        (uint256 y1, uint256 m1, uint256 d1) = DateTimeLib.timestampToDate(fri1);
+        assertEq(d1, 6); // November 6th
+        
+        // 4th Friday of November 2020
+        uint256 fri4 = DateTimeLib.nthWeekdayInMonthOfYearTimestamp0(2020, 11, 4, 5);
+        assertEq(DateTimeLib.weekday0(fri4), 5); // Verify it's a Friday
+        (uint256 y4, uint256 m4, uint256 d4) = DateTimeLib.timestampToDate(fri4);
+        assertEq(d4, 27); // November 27th
+        
+        // 5th Friday of November 2020 (doesn't exist - should return 0)
+        uint256 fri5 = DateTimeLib.nthWeekdayInMonthOfYearTimestamp0(2020, 11, 5, 5);
+        assertEq(fri5, 0); // Should return 0 for invalid date
+        
+        // Test December 2020 which has 5 Fridays
+        // Dec 1, 2020 is a Tuesday
+        // Fridays in Dec 2020: 4th, 11th, 18th, 25th, (and hypothetically 32nd if month continued)
+        
+        // 1st Friday of December 2020
+        uint256 decFri1 = DateTimeLib.nthWeekdayInMonthOfYearTimestamp0(2020, 12, 1, 5);
+        assertEq(DateTimeLib.weekday0(decFri1), 5);
+        (uint256 dy1, uint256 dm1, uint256 dd1) = DateTimeLib.timestampToDate(decFri1);
+        assertEq(dd1, 4); // December 4th
+        
+        // 4th Friday of December 2020 (Christmas Day)
+        uint256 decFri4 = DateTimeLib.nthWeekdayInMonthOfYearTimestamp0(2020, 12, 4, 5);
+        assertEq(DateTimeLib.weekday0(decFri4), 5);
+        (uint256 dy4, uint256 dm4, uint256 dd4) = DateTimeLib.timestampToDate(decFri4);
+        assertEq(dd4, 25); // December 25th
+        
+        // 5th Friday of December 2020 (doesn't exist - would be Jan 1, 2021)
+        uint256 decFri5 = DateTimeLib.nthWeekdayInMonthOfYearTimestamp0(2020, 12, 5, 5);
+        assertEq(decFri5, 0); // Should return 0 for invalid date
+        
+        // Test with 1-indexed version for comparison
+        uint256 fri5_1indexed = DateTimeLib.nthWeekdayInMonthOfYearTimestamp(2020, 11, 5, 6); // Friday = 6 in 1-indexed
+        assertEq(fri5_1indexed, 0); // Should also return 0
+    }
+
+    function testNthWeekdayYearTransition() public {
+        // Test the scenario from documentation:
+        // Start with 5th Friday of November 2019, add a year
+        // November 2019: Nov 1 is Friday, so Fridays are: 1st, 8th, 15th, 22nd, 29th (5 Fridays)
+        
+        // Get 5th Friday of November 2019
+        uint256 nov2019_5thFri = DateTimeLib.nthWeekdayInMonthOfYearTimestamp0(2019, 11, 5, 5);
+        assertGt(nov2019_5thFri, 0); // Should exist
+        (uint256 y19, uint256 m19, uint256 d19) = DateTimeLib.timestampToDate(nov2019_5thFri);
+        assertEq(y19, 2019);
+        assertEq(m19, 11);
+        assertEq(d19, 29); // November 29, 2019
+        
+        // Add one year - this simulates the C++ date library pattern
+        uint256 oneYearLater = DateTimeLib.addYears(nov2019_5thFri, 1);
+        (uint256 y20, uint256 m20, uint256 d20) = DateTimeLib.timestampToDate(oneYearLater);
+        
+        // After adding a year, we get November 29, 2020
+        // But November 29, 2020 is a Sunday, not a Friday!
+        assertEq(y20, 2020);
+        assertEq(m20, 11);
+        assertEq(d20, 29);
+        assertEq(DateTimeLib.weekday0(oneYearLater), 0); // Sunday = 0
+        
+        // To handle this like C++ date library, we would need to:
+        // 1. Check if the resulting date is valid for the nth weekday
+        // 2. If not, snap to the last occurrence of that weekday in the month
+        
+        // The equivalent of the C++ pattern would be to get the 4th Friday instead
+        uint256 nov2020_4thFri = DateTimeLib.nthWeekdayInMonthOfYearTimestamp0(2020, 11, 4, 5);
+        (uint256 y20_4th, uint256 m20_4th, uint256 d20_4th) = DateTimeLib.timestampToDate(nov2020_4thFri);
+        assertEq(y20_4th, 2020);
+        assertEq(m20_4th, 11);
+        assertEq(d20_4th, 27); // November 27, 2020 - the last Friday of the month
+    }
+
+    function testWeekdayBoundaryConditions() public {
+        // Test months with different Friday counts
+        // February 2021: starts on Monday, has exactly 4 Fridays (5th, 12th, 19th, 26th)
+        uint256 feb2021_4thFri = DateTimeLib.nthWeekdayInMonthOfYearTimestamp0(2021, 2, 4, 5);
+        assertGt(feb2021_4thFri, 0);
+        (,, uint256 d) = DateTimeLib.timestampToDate(feb2021_4thFri);
+        assertEq(d, 26);
+        
+        uint256 feb2021_5thFri = DateTimeLib.nthWeekdayInMonthOfYearTimestamp0(2021, 2, 5, 5);
+        assertEq(feb2021_5thFri, 0); // No 5th Friday in February 2021
+        
+        // January 2021: starts on Friday, has 5 Fridays (1st, 8th, 15th, 22nd, 29th)
+        uint256 jan2021_5thFri = DateTimeLib.nthWeekdayInMonthOfYearTimestamp0(2021, 1, 5, 5);
+        assertGt(jan2021_5thFri, 0);
+        (,, uint256 d5) = DateTimeLib.timestampToDate(jan2021_5thFri);
+        assertEq(d5, 29);
+    }
+
+    function testNthWeekdayInMonthOfYearTimestamp0Safe() public {
+        // Test the safe version that snaps to last valid occurrence
+        
+        // November 2020 has only 4 Fridays
+        // Requesting 5th Friday should return 4th Friday (27th)
+        uint256 nov2020_5thFriSafe = DateTimeLib.nthWeekdayInMonthOfYearTimestamp0Safe(2020, 11, 5, 5);
+        assertGt(nov2020_5thFriSafe, 0); // Should not be 0
+        (uint256 y, uint256 m, uint256 d) = DateTimeLib.timestampToDate(nov2020_5thFriSafe);
+        assertEq(y, 2020);
+        assertEq(m, 11);
+        assertEq(d, 27); // Should snap to 4th Friday (Nov 27)
+        assertEq(DateTimeLib.weekday0(nov2020_5thFriSafe), 5); // Verify it's a Friday
+        
+        // Verify it returns the same as directly asking for 4th Friday
+        uint256 nov2020_4thFri = DateTimeLib.nthWeekdayInMonthOfYearTimestamp0(2020, 11, 4, 5);
+        assertEq(nov2020_5thFriSafe, nov2020_4thFri);
+        
+        // Test with a month that has 5 Fridays - should return the actual 5th
+        uint256 jan2021_5thFriSafe = DateTimeLib.nthWeekdayInMonthOfYearTimestamp0Safe(2021, 1, 5, 5);
+        (uint256 y5, uint256 m5, uint256 d5) = DateTimeLib.timestampToDate(jan2021_5thFriSafe);
+        assertEq(y5, 2021);
+        assertEq(m5, 1);
+        assertEq(d5, 29); // Actual 5th Friday exists
+        
+        // Test edge case: requesting 10th Friday should still return last valid (4th for Nov 2020)
+        uint256 nov2020_10thFriSafe = DateTimeLib.nthWeekdayInMonthOfYearTimestamp0Safe(2020, 11, 10, 5);
+        assertEq(nov2020_10thFriSafe, nov2020_4thFri);
+        
+        // Test with Sunday (0-indexed) in a different month
+        uint256 dec2020_6thSunSafe = DateTimeLib.nthWeekdayInMonthOfYearTimestamp0Safe(2020, 12, 6, 0);
+        // December 2020 starts on Tuesday, Sundays are: 6th, 13th, 20th, 27th (4 Sundays)
+        (,, uint256 dSun) = DateTimeLib.timestampToDate(dec2020_6thSunSafe);
+        assertEq(dSun, 27); // Should snap to 4th Sunday
+    }
 }

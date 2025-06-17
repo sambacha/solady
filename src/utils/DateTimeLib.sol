@@ -32,6 +32,16 @@ library DateTimeLib {
     uint256 internal constant SAT = 6;
     uint256 internal constant SUN = 7;
 
+    // Weekdays are 0-indexed, following C convention (Sunday as start of week).
+
+    uint256 internal constant SUN_0 = 0;
+    uint256 internal constant MON_0 = 1;
+    uint256 internal constant TUE_0 = 2;
+    uint256 internal constant WED_0 = 3;
+    uint256 internal constant THU_0 = 4;
+    uint256 internal constant FRI_0 = 5;
+    uint256 internal constant SAT_0 = 6;
+
     // Months and days of months are 1-indexed, adhering to ISO 8601.
 
     uint256 internal constant JAN = 1;
@@ -194,6 +204,16 @@ library DateTimeLib {
         }
     }
 
+    /// @dev Returns the weekday from the unix timestamp (0-indexed).
+    /// Sunday: 0, Monday: 1, Tuesday: 2, ....., Saturday: 6.
+    /// This follows the C convention where Sunday is the start of the week.
+    function weekday0(uint256 timestamp) internal pure returns (uint256 result) {
+        unchecked {
+            // Jan 1, 1970 was Thursday (4 in 0-indexed where Sunday=0)
+            result = (timestamp / 86400 + 4) % 7;
+        }
+    }
+
     /// @dev Returns if (`year`,`month`,`day`) is a supported date.
     /// - `1970 <= year <= MAX_SUPPORTED_YEAR`.
     /// - `1 <= month <= 12`.
@@ -270,6 +290,32 @@ library DateTimeLib {
         }
     }
 
+    /// @dev Returns the unix timestamp of the given `n`th weekday `wd0`, in `month` of `year` (0-indexed).
+    /// Example: 3rd Friday of Feb 2022 is `nthWeekdayInMonthOfYearTimestamp0(2022, 2, 3, 5)`
+    /// Note: `n` is 1-indexed, but `wd0` is 0-indexed (Sunday = 0, Monday = 1, ..., Saturday = 6).
+    /// Invalid weekdays (i.e. `wd0 > 6`) result in undefined behavior.
+    function nthWeekdayInMonthOfYearTimestamp0(uint256 year, uint256 month, uint256 n, uint256 wd0)
+        internal
+        pure
+        returns (uint256 result)
+    {
+        uint256 d = dateToEpochDay(year, month, 1);
+        uint256 md = daysInMonth(year, month);
+        /// @solidity memory-safe-assembly
+        assembly {
+            // Get weekday of first day of month (0-indexed)
+            let firstDayWd0 := mod(add(d, 4), 7)
+            // Calculate days to add to get to first occurrence of target weekday
+            let diff := sub(wd0, firstDayWd0)
+            // If diff is negative, add 7 to get positive offset
+            diff := add(diff, mul(7, slt(diff, 0)))
+            // Calculate the date for nth occurrence (1-indexed day of month)
+            let date := add(1, add(mul(sub(n, 1), 7), diff))
+            // Return timestamp if date is valid, 0 otherwise
+            result := mul(mul(86400, add(sub(date, 1), d)), and(lt(date, add(md, 1)), iszero(iszero(n))))
+        }
+    }
+
     /// @dev Returns the unix timestamp of the most recent Monday.
     function mondayTimestamp(uint256 timestamp) internal pure returns (uint256 result) {
         uint256 t = timestamp;
@@ -280,10 +326,72 @@ library DateTimeLib {
         }
     }
 
+    /// @dev Returns the unix timestamp of the most recent Monday (0-indexed).
+    /// Uses 0-indexed weekday where Sunday = 0, Monday = 1.
+    function mondayTimestamp0(uint256 timestamp) internal pure returns (uint256 result) {
+        unchecked {
+            uint256 day = timestamp / 86400;
+            uint256 wd0 = weekday0(timestamp);
+            // If Sunday (0), go back 6 days; if Monday (1), stay; otherwise go back (wd0 - 1) days
+            uint256 daysBack = wd0 == 0 ? 6 : wd0 - 1;
+            // Handle edge case for the first week of Unix time
+            if (day < daysBack) {
+                result = 0;
+            } else {
+                result = (day - daysBack) * 86400;
+            }
+        }
+    }
+
     /// @dev Returns whether the unix timestamp falls on a Saturday or Sunday.
     /// To check whether it is a week day, just take the negation of the result.
     function isWeekEnd(uint256 timestamp) internal pure returns (bool result) {
         result = weekday(timestamp) > FRI;
+    }
+
+    /// @dev Returns whether the unix timestamp falls on a Saturday or Sunday (0-indexed).
+    /// To check whether it is a week day, just take the negation of the result.
+    function isWeekEnd0(uint256 timestamp) internal pure returns (bool result) {
+        uint256 wd = weekday0(timestamp);
+        result = wd == SUN_0 || wd == SAT_0;
+    }
+
+    /// @dev Converts a 1-indexed weekday (1-7) to 0-indexed (0-6).
+    /// Monday (1) -> Monday (1), ..., Saturday (6) -> Saturday (6), Sunday (7) -> Sunday (0).
+    function weekdayTo0Indexed(uint256 weekday1) internal pure returns (uint256 result) {
+        unchecked {
+            result = weekday1 == 7 ? 0 : weekday1;
+        }
+    }
+
+    /// @dev Converts a 0-indexed weekday (0-6) to 1-indexed (1-7).
+    /// Sunday (0) -> Sunday (7), Monday (1) -> Monday (1), ..., Saturday (6) -> Saturday (6).
+    function weekdayTo1Indexed(uint256 weekday0Indexed) internal pure returns (uint256 result) {
+        unchecked {
+            result = weekday0Indexed == 0 ? 7 : weekday0Indexed;
+        }
+    }
+
+    /// @dev Returns the unix timestamp of the given `n`th weekday `wd0`, in `month` of `year`.
+    /// If the nth occurrence doesn't exist, returns the last occurrence of that weekday.
+    /// This follows the C++ date library pattern for handling overflow.
+    /// Example: 5th Friday of November 2020 returns 4th Friday (the last one).
+    function nthWeekdayInMonthOfYearTimestamp0Safe(uint256 year, uint256 month, uint256 n, uint256 wd0)
+        internal
+        pure
+        returns (uint256 result)
+    {
+        // First try to get the requested nth weekday
+        result = nthWeekdayInMonthOfYearTimestamp0(year, month, n, wd0);
+        
+        // If it doesn't exist (returns 0), find the last occurrence
+        if (result == 0 && n > 0) {
+            // Try n-1, n-2, etc. until we find a valid one
+            for (uint256 i = n - 1; i > 0; i--) {
+                result = nthWeekdayInMonthOfYearTimestamp0(year, month, i, wd0);
+                if (result != 0) break;
+            }
+        }
     }
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
