@@ -865,4 +865,121 @@ contract DateTimeLibTest is SoladyTest {
             day = uint256(_day);
         }
     }
+
+    // Tests for 0-indexed weekday functions
+
+    function testWeekday0() public {
+        // Thursday 01 January 1970 should be 4 in 0-indexed (Sunday = 0)
+        assertEq(DateTimeLib.weekday0(0), 4);
+        assertEq(DateTimeLib.weekday0(1), 4);
+        // Friday 02 January 1970 should be 5
+        assertEq(DateTimeLib.weekday0(86400), 5);
+        assertEq(DateTimeLib.weekday0(86401), 5);
+        // Saturday 03 January 1970 should be 6
+        assertEq(DateTimeLib.weekday0(172800), 6);
+        // Sunday 04 January 1970 should be 0
+        assertEq(DateTimeLib.weekday0(259200), 0);
+        // Monday 05 January 1970 should be 1
+        assertEq(DateTimeLib.weekday0(345600), 1);
+        // Tuesday 06 January 1970 should be 2
+        assertEq(DateTimeLib.weekday0(432000), 2);
+        // Wednesday 07 January 1970 should be 3
+        assertEq(DateTimeLib.weekday0(518400), 3);
+    }
+
+    function testWeekday0Fuzz(uint256 timestamp) public {
+        timestamp = _bound(timestamp, 0, DateTimeLib.MAX_SUPPORTED_TIMESTAMP);
+        uint256 wd1 = DateTimeLib.weekday(timestamp);
+        uint256 wd0 = DateTimeLib.weekday0(timestamp);
+        
+        // Verify the relationship between 1-indexed and 0-indexed
+        // In 1-indexed: Mon=1, Tue=2, Wed=3, Thu=4, Fri=5, Sat=6, Sun=7
+        // In 0-indexed: Sun=0, Mon=1, Tue=2, Wed=3, Thu=4, Fri=5, Sat=6
+        uint256 expectedWd0 = DateTimeLib.weekdayTo0Indexed(wd1);
+        assertEq(wd0, expectedWd0);
+    }
+
+    function testWeekdayConversions() public {
+        // Test 1-indexed to 0-indexed conversion
+        assertEq(DateTimeLib.weekdayTo0Indexed(1), 1); // Monday
+        assertEq(DateTimeLib.weekdayTo0Indexed(2), 2); // Tuesday
+        assertEq(DateTimeLib.weekdayTo0Indexed(3), 3); // Wednesday
+        assertEq(DateTimeLib.weekdayTo0Indexed(4), 4); // Thursday
+        assertEq(DateTimeLib.weekdayTo0Indexed(5), 5); // Friday
+        assertEq(DateTimeLib.weekdayTo0Indexed(6), 6); // Saturday
+        assertEq(DateTimeLib.weekdayTo0Indexed(7), 0); // Sunday
+
+        // Test 0-indexed to 1-indexed conversion
+        assertEq(DateTimeLib.weekdayTo1Indexed(0), 7); // Sunday
+        assertEq(DateTimeLib.weekdayTo1Indexed(1), 1); // Monday
+        assertEq(DateTimeLib.weekdayTo1Indexed(2), 2); // Tuesday
+        assertEq(DateTimeLib.weekdayTo1Indexed(3), 3); // Wednesday
+        assertEq(DateTimeLib.weekdayTo1Indexed(4), 4); // Thursday
+        assertEq(DateTimeLib.weekdayTo1Indexed(5), 5); // Friday
+        assertEq(DateTimeLib.weekdayTo1Indexed(6), 6); // Saturday
+    }
+
+    function testIsWeekEnd0() public {
+        // Test known weekend days
+        assertEq(DateTimeLib.isWeekEnd0(172800), true); // Saturday 03 January 1970
+        assertEq(DateTimeLib.isWeekEnd0(259200), true); // Sunday 04 January 1970
+        
+        // Test known weekdays
+        assertEq(DateTimeLib.isWeekEnd0(0), false); // Thursday 01 January 1970
+        assertEq(DateTimeLib.isWeekEnd0(86400), false); // Friday 02 January 1970
+        assertEq(DateTimeLib.isWeekEnd0(345600), false); // Monday 05 January 1970
+        assertEq(DateTimeLib.isWeekEnd0(432000), false); // Tuesday 06 January 1970
+        assertEq(DateTimeLib.isWeekEnd0(518400), false); // Wednesday 07 January 1970
+    }
+
+    function testIsWeekEnd0Fuzz(uint256 timestamp) public {
+        timestamp = _bound(timestamp, 0, DateTimeLib.MAX_SUPPORTED_TIMESTAMP);
+        uint256 wd0 = DateTimeLib.weekday0(timestamp);
+        bool isWeekend = DateTimeLib.isWeekEnd0(timestamp);
+        
+        if (wd0 == 0 || wd0 == 6) {
+            assertTrue(isWeekend);
+        } else {
+            assertFalse(isWeekend);
+        }
+    }
+
+    function testMondayTimestamp0() public {
+        // Test various dates and their corresponding Mondays
+        // Monday 05 January 1970
+        assertEq(DateTimeLib.mondayTimestamp0(345600), 345600);
+        // Sunday 04 January 1970 -> Monday 29 December 1969 (but should handle edge case)
+        assertEq(DateTimeLib.mondayTimestamp0(259200), 0); // Edge case for first week
+        // Saturday 03 January 1970 -> previous Monday would be negative
+        assertEq(DateTimeLib.mondayTimestamp0(172800), 0);
+        // Friday 02 January 1970 -> previous Monday would be negative
+        assertEq(DateTimeLib.mondayTimestamp0(86400), 0);
+        
+        // Test a known Monday in November 2022 (same as in original tests)
+        // Monday 07 November 2022
+        assertEq(DateTimeLib.mondayTimestamp0(1667779200), 1667779200);
+        // Sunday 06 November 2022 should give Monday 31 October 2022
+        assertEq(DateTimeLib.mondayTimestamp0(1667692800), 1667174400);
+    }
+
+    function testNthWeekdayInMonthOfYearTimestamp0() public {
+        // Test with 0-indexed weekdays
+        // 1st Wednesday (wd0=3) in November 2022
+        uint256 nov1 = DateTimeLib.dateToTimestamp(2022, 11, 1);
+        uint256 nov1Wd0 = DateTimeLib.weekday0(nov1);
+        // Nov 1, 2022 is Tuesday (2), so first Wednesday (3) is Nov 2
+        assertEq(nov1Wd0, 2); // Verify Nov 1 is Tuesday
+        
+        uint256 result = DateTimeLib.nthWeekdayInMonthOfYearTimestamp0(2022, 11, 1, 3);
+        assertEq(result, 1667347200); // Nov 2, 2022
+        
+        // 2nd Wednesday in November 2022
+        assertEq(DateTimeLib.nthWeekdayInMonthOfYearTimestamp0(2022, 11, 2, 3), 1667952000);
+        
+        // 1st Sunday (wd0=0) in January 2023
+        assertEq(DateTimeLib.nthWeekdayInMonthOfYearTimestamp0(2023, 1, 1, 0), 1672531200);
+        
+        // 1st Friday (wd0=5) in December 2022
+        assertEq(DateTimeLib.nthWeekdayInMonthOfYearTimestamp0(2022, 12, 1, 5), 1669939200);
+    }
 }
